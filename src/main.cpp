@@ -1,49 +1,41 @@
 /*
-  ModbusRTU ESP8266/ESP32
-  Read multiple coils from slave device example
-
-  (c)2019 Alexander Emelianov (a.m.emelianov@gmail.com)
+  Modbus Library for Arduino Example - Modbus RTU Client
+  Read Holding Registers from Modbus RTU Server in blocking way
+  ESP8266 Example
+  
+  (c)2020 Alexander Emelianov (a.m.emelianov@gmail.com)
   https://github.com/emelianov/modbus-esp8266
-
-  modified 13 May 2020
-  by brainelectronics
-
-  This code is licensed under the BSD New License. See LICENSE.txt for more info.
 */
 #include <Arduino.h>
 #include <ModbusRTU.h>
-#if defined(ESP8266)
- #include <SoftwareSerial.h>
- // SoftwareSerial S(D1, D2, false, 256);
+//#include <SoftwareSerial.h>
 
- // receivePin, transmitPin, inverse_logic, bufSize, isrBufSize
- // connect RX to D2 (GPIO4, Arduino pin 4), TX to D1 (GPIO5, Arduino pin 4)
- SoftwareSerial S(4, 5);
-#endif
+#define SLAVE_ID 1
+#define FIRST_REG 0
+#define REG_COUNT 22
+#define EN 21
 
+//SoftwareSerial S(D2, D1);
 ModbusRTU mb;
 
-bool cbWrite(Modbus::ResultCode event, uint16_t transactionId, void* data) {
-#ifdef ESP8266
-  Serial.printf_P("Request result: 0x%02X, Mem: %d\n", event, ESP.getFreeHeap());
-#elif ESP32
-  Serial.printf_P("Request result: 0x%02X, Mem: %d\n", event, ESP.getFreeHeap());
-#else
-  Serial.print("Request result: 0x");
-  Serial.print(event, HEX);
-#endif
+bool cb(Modbus::ResultCode event, uint16_t transactionId, void* data) { // Callback to monitor errors
+  if (event != Modbus::EX_SUCCESS) {
+    Serial.print("Request result: 0x");
+    Serial.print(event, HEX);
+  }
   return true;
 }
 
 void setup() {
-  Serial.begin(115200);
+
+  Serial.begin(9600);
  #if defined(ESP8266)
   S.begin(9600, SWSERIAL_8N1);
   mb.begin(&S);
  #elif defined(ESP32)
   Serial1.begin(9600, SERIAL_8N1);
   //mb.setBaudrate(9600);
-  mb.begin(&Serial1,21,true);
+  mb.begin(&Serial1);
   //mb.setInterFrameTime(40000);
  #else
   Serial1.begin(9600, SERIAL_8N1);
@@ -51,17 +43,18 @@ void setup() {
   mb.setBaudrate(9600);
  #endif
   mb.master();
-  Serial.begin(9600);
+  pinMode(EN,OUTPUT);
+  digitalWrite(EN,LOW);
 }
 
-//bool coils[20];
-uint16_t Hregs[22];
-
+uint16_t Hregs[REG_COUNT];
 void loop() {
+  digitalWrite(EN,HIGH);
+  mb.readHreg(SLAVE_ID, FIRST_REG, Hregs, REG_COUNT, cb); // Send Read Hreg from Modbus Server
   mb.task();
-  mb.readHreg(131,0,Hregs,22,cbWrite);
+  vTaskDelay(25);
+  digitalWrite(EN,LOW);
   float frec=(float)(Hregs[13]<<16|Hregs[12]);
-  Serial.println(frec);
-  yield();
-  delay(10000);
+  //Serial.println(frec);
+  delay(5000);
 }
