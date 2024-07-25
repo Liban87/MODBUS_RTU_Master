@@ -1,6 +1,8 @@
 #include <Arduino.h>
 #include <ModbusRTU.h>
 #include "driver/timer.h"
+#include "Adafruit_MQTT.h"
+#include "Adafruit_MQTT_Client.h"
 
 #define SLAVE_ID 1
 #define FIRST_REG 0x00
