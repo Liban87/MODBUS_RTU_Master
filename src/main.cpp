@@ -86,7 +86,7 @@ void setup() {
       .auto_reload = TIMER_AUTORELOAD_DIS,
       .divider = 80   // 80 MHz / 80 = 1 MHz (1 tick per microsecond)
   };
-
+  
   // Initialize the timer
   timer_init(TIMER_GROUP_1, TIMER_0, &config);
 
