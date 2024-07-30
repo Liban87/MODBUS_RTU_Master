@@ -1,17 +1,39 @@
+//Incluir librerías
+
 #include <Arduino.h>
 #include <ModbusRTU.h>
 #include "driver/timer.h"
 #include "Adafruit_MQTT.h"
 #include "Adafruit_MQTT_Client.h"
+#include "WiFi.h"
+
+//Definir constantes
 
 #define SLAVE_ID 1
 #define FIRST_REG 0x00
 #define REG_COUNT 0x0B
 #define EN 25
 
+//CONSTANTES DE PUBLICACIÓN POR MQTT
+#define WIFI_SSID "Anita"
+#define WIFI_PASSWORD "anasofia12"
+#define HOST "192.168.118.13" //Direccion IP de la raspberry pi dentro de la red
+#define PORT 1883 //Puerto por defecto para MQTT
+#define USERNAME "anas.valenciae"
+#define PASSWORD "anasofia12"
+
+//CREACIÓN DEL CLIENTE
+WiFiClient client;
+Adafruit_MQTT_Client mqtt(&client, HOST, PORT, USERNAME, PASSWORD);
+
+//----------------------------------------------------
+
+// -------------
 ModbusRTU mb;
 xSemaphoreHandle xMutex;
 Modbus::ResultCode err;
+
+//Definir la estructura para los datos del medidor
 
 typedef struct MeterData{
   float Va;
@@ -28,6 +50,16 @@ typedef union unt162float{
   uint16_t dt16[2];
   float fp;
 }unt162float;
+
+//DEFINICIÓN DE OBJETOS MQTT
+Adafruit_MQTT_Publish VaPub = Adafruit_MQTT_Publish(&mqtt, "meterData/Va");
+Adafruit_MQTT_Publish VbPub = Adafruit_MQTT_Publish(&mqtt, "meterData/Vb");
+Adafruit_MQTT_Publish VcPub = Adafruit_MQTT_Publish(&mqtt, "meterData/Vc");
+Adafruit_MQTT_Publish VabPub = Adafruit_MQTT_Publish(&mqtt, "meterData/Vab");
+Adafruit_MQTT_Publish VbcPub = Adafruit_MQTT_Publish(&mqtt, "meterData/Vbc"); 
+Adafruit_MQTT_Publish VcaPub = Adafruit_MQTT_Publish(&mqtt, "meterData/Vca");
+
+//MUTEX --------------------
 
 Modbus::ResultCode readSync(uint8_t address, uint16_t start, uint16_t num, uint16_t* buf) {
   xSemaphoreTake(xMutex, portMAX_DELAY);
@@ -59,7 +91,14 @@ Modbus::ResultCode readSync(uint8_t address, uint16_t start, uint16_t num, uint1
   return res;
 }
 
+//DECLARACIÓN DE FUNCIONES 
 void loop1(void *pvParameters);
+
+void Hex2Float(uint16_t* res, MeterData* data);
+
+void MQTT_connect();
+
+//--------------------------------------------
 
 void setup() {
   Serial.begin(115200);
@@ -101,6 +140,17 @@ void setup() {
 
   // Start the timer
   timer_start(TIMER_GROUP_1, TIMER_0);
+
+  //CONFIGURACIÓN WIFI --------------------------------------------------
+    WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+    while (WiFi.status() != WL_CONNECTED) {
+        delay(500);
+        Serial.print(".");
+    }
+    Serial.println("Connected to WiFi");
+
+    //CONFIGURACIÓN BROKER MQTT -------------------------------------------------
+    MQTT_connect();
 }
 
 uint16_t res[REG_COUNT];
@@ -111,21 +161,35 @@ void loop1(void *pvParameters) {
     if (readSync(SLAVE_ID, FIRST_REG, REG_COUNT, res) == Modbus::EX_SUCCESS)
       {
         Serial.println("OK 1");
-        //memcpy(&mtDt,res,REG_COUNT*2);
         Serial.print("res= ");
         Serial.print(res[0],HEX);
         Serial.println(res[1],HEX);
-        float Va;
-        unsigned long* p;
-        p = (unsigned long*)&Va;
-        *p = (unsigned long)res[0]<<16 | res[1];
-        // float Va = (res[0]<<16 | res[1]);
-        Serial.print("Va= ");
-        Serial.println(Va,1);
-        // Serial.print("Vb= ");
-        // Serial.println(mtDt.Vb);
-        // Serial.print("Vc= ");
-        // Serial.println(mtDt.Vc);
+
+        //Llamar la función 
+        Hex2Float(res, &mtDt);
+
+        //Imprmir valores
+        Serial.print("Va: ");
+        Serial.println(mtDt.Va);
+        Serial.print("Vb: ");
+        Serial.println(mtDt.Vb);
+        Serial.print("Vc: ");
+        Serial.println(mtDt.Vc);
+        Serial.print("Vab: ");
+        Serial.println(mtDt.Vab);
+        Serial.print("Vbc: ");
+        Serial.println(mtDt.Vbc);
+        Serial.print("Vca: ");
+        Serial.println(mtDt.Vca);
+
+        // Publicar los valores a través de MQTT
+        VaPub.publish(mtDt.Va);
+        VbPub.publish(mtDt.Vb);
+        VcPub.publish(mtDt.Vc);
+        VabPub.publish(mtDt.Vab);
+        VbcPub.publish(mtDt.Vbc);
+        VcaPub.publish(mtDt.Vca);
+
       }
     else
       Serial.println("Error 1");
@@ -138,4 +202,37 @@ void loop() {
 
   // Your existing loop code
   delay(100);
+}
+
+//Función para pasar de Hexa a flotante 
+
+void Hex2Float(uint16_t* res, MeterData* data) {
+    int temp;
+    float* components[] = { &data->Va, &data->Vb, &data->Vc, &data->Vab, &data->Vbc, &data->Vca };
+
+    for (int i = 0; i < 6; ++i) {
+        temp = (int)res[2 * i] << 16 | res[2 * i + 1];
+        *components[i] = *((float*)&temp);
+    }
+}
+
+//function for connecting esp32 to mqtt broker.
+void MQTT_connect(){
+  int8_t ret;
+  if (mqtt.connected()) {
+    return;
+  }
+
+  Serial.print("Connecting to MQTT... ");
+  uint8_t retries = 10;
+  while ((ret = mqtt.connect()) != 0) { // connect will return 0 for connected
+       Serial.println(mqtt.connectErrorString(ret));
+       Serial.println("Retrying MQTT connection in 1 second...");
+       mqtt.disconnect();
+       delay(1000);
+       retries--;
+       if (retries == 0)
+         Serial.println("No Conectado");
+  }
+  Serial.println("MQTT Connected!");
 }
