@@ -1,0 +1,53 @@
+import streamlit as st
+import paho.mqtt.client as mqtt
+import time
+
+# Inicializar variables globales para los datos del medidor
+meter_data = {
+    "Va": 0.0,
+    "Vb": 0.0,
+    "Vc": 0.0,
+    "Vab": 0.0,
+    "Vbc": 0.0,
+    "Vca": 0.0
+}
+
+# Función de callback cuando se recibe un mensaje MQTT
+def on_message(client, userdata, message):
+    global meter_data
+    payload = message.payload.decode("utf-8")
+    topic = message.topic.split("/")[-1]
+    if topic in meter_data:
+        meter_data[topic] = float(payload)
+
+# Configurar el cliente MQTT
+mqtt_broker = "localhost"
+mqtt_port = 1843
+mqtt_user = "anas.valenciae"
+mqtt_password = "anasofia12"
+client = mqtt.Client()
+client.username_pw_set(mqtt_user, mqtt_password)
+client.on_message = on_message
+
+# Conectar al broker MQTT
+client.connect(mqtt_broker, mqtt_port)
+client.subscribe("meterData/#")
+client.loop_start()
+
+# Configurar la aplicación Streamlit
+st.title("Meter Data Dashboard")
+
+# Función principal para mostrar los datos en el dashboard
+def display_dashboard():
+    global meter_data
+    while True:
+        st.write(f"Va: {meter_data['Va']}")
+        st.write(f"Vb: {meter_data['Vb']}")
+        st.write(f"Vc: {meter_data['Vc']}")
+        st.write(f"Vab: {meter_data['Vab']}")
+        st.write(f"Vbc: {meter_data['Vbc']}")
+        st.write(f"Vca: {meter_data['Vca']}")
+        time.sleep(1)
+
+if __name__ == "__main__":
+    display_dashboard()
